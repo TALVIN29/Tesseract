@@ -1,0 +1,63 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Secrets & Certs
+*.pem
+*.key
+*.crt
+*.p12
+infra/certs/*.pem
+infra/certs/*.key
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+sphere/.next/
+sphere/out/
+
+# Build outputs
+cube/dist/
+cube/build/
+*.js.map
+
+# n8n runtime data
+n8n-data/
+infra/n8n-data/
+
+# Docker volumes (local dev data)
+infra/postgres-cube-data/
+infra/postgres-planes-data/
+infra/redis-data/
+infra/grafana-data/
+infra/prometheus-data/
+
+# Rules repo is a separate Git repository — do not track here
+rules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# Test outputs
+coverage/
+.nyc_output/
+test-results/
+
+# TypeScript
+*.tsbuildinfo

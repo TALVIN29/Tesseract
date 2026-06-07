@@ -1,0 +1,19 @@
+# ============================================================
+# PROJECT TESSERACT — Grafana Datasource Provisioning
+# Auto-configured on container start — no manual setup required
+# ============================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      prometheusType: Prometheus
+      prometheusVersion: 2.45.0
+      timeInterval: '15s'

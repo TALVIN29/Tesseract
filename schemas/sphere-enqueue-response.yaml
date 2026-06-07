@@ -1,0 +1,153 @@
+# ============================================================
+# PROJECT TESSERACT — SphereEnqueueResponse Schema
+# OpenAPI 3.1 Component Definition
+# Audit Patch 2C: Extends original {job_id} response with
+#   status, ttl_seconds, and poll_endpoint fields.
+# ============================================================
+# Transport: Sphere API Gateway → Client (HTTP 202 Accepted)
+# This response is returned IMMEDIATELY — before any Plane or Cube processing.
+# The client must not assume processing is complete on receipt of 202.
+# ============================================================
+
+openapi: "3.1.0"
+info:
+  title: Tesseract SphereEnqueueResponse Schema
+  version: "1.0.0"
+
+components:
+  schemas:
+
+    # ----------------------------------------------------------
+    # 202 Accepted response — event successfully enqueued
+    # ----------------------------------------------------------
+    SphereEnqueueResponse:
+      type: object
+      description: >
+        Returned by POST /api/gateway/v1 on successful event enqueue.
+        The job_id is the client's reference for tracking this event
+        through the Plane → Cube pipeline.
+        The client MUST subscribe to the WebSocket verdict channel
+        OR poll the poll_endpoint before ttl_seconds expires.
+      required:
+        - job_id
+        - status
+        - ttl_seconds
+        - poll_endpoint
+        - submitted_at
+      additionalProperties: false
+      properties:
+
+        job_id:
+          type: string
+          format: uuid
+          description: >
+            Unique identifier for this event's lifecycle.
+            Consistent across all layers: Redis Stream → Plane → NearMissPacket → Cube → WebSocket push.
+            Store this in the client-side job_id registry (Zustand store).
+          example: "c1d2e3f4-a5b6-7c8d-9e0f-1a2b3c4d5e6f"
+
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - PROCESSING
+            - VERDICT_RECEIVED
+            - TIMEOUT
+            - DLQ
+          description: >
+            Current lifecycle status of this job.
+            On initial enqueue, always returns "QUEUED".
+            Subsequent status values are delivered via:
+              1. WebSocket push (primary path)
+              2. GET /api/sphere/verdict/:job_id (reconciliation path — Audit Finding 1A)
+          example: "QUEUED"
+
+        ttl_seconds:
+          type: integer
+          minimum: 1
+          description: >
+            Time-to-live for this job in the Redis Stream queue.
+            If no Plane consumer acknowledges the message within ttl_seconds,
+            the message is moved to the DLQ and status transitions to "DLQ".
+            Client should treat absence of verdict after ttl_seconds as a signal
+            to call the poll_endpoint.
+          example: 120
+
+        poll_endpoint:
+          type: string
+          format: uri-reference
+          description: >
+            Relative URL of the reconciliation endpoint for this job_id.
+            Audit Finding 1A: call this endpoint on WebSocket reconnect or
+            when status remains QUEUED/PROCESSING after ttl_seconds.
+          example: "/api/sphere/verdict/c1d2e3f4-a5b6-7c8d-9e0f-1a2b3c4d5e6f"
+
+        submitted_at:
+          type: string
+          format: date-time
+          description: >
+            ISO 8601 timestamp of when the event was enqueued.
+            Use this with ttl_seconds to compute the DLQ deadline:
+            dlq_deadline = submitted_at + ttl_seconds
+          example: "2026-06-08T10:15:30.000Z"
+
+    # ----------------------------------------------------------
+    # Verdict poll response — returned by GET /api/sphere/verdict/:job_id
+    # Audit Finding 1A: reconciliation endpoint
+    # ----------------------------------------------------------
+    SphereVerdictPollResponse:
+      type: object
+      description: >
+        Returned by GET /api/sphere/verdict/:job_id.
+        Used by the client for reconciliation after WebSocket disconnect
+        or when a job_id times out without a WebSocket push.
+        Read-only path — does NOT trigger Cube re-evaluation.
+      required:
+        - job_id
+        - status
+      additionalProperties: false
+      properties:
+
+        job_id:
+          type: string
+          format: uuid
+
+        status:
+          type: string
+          enum:
+            - PENDING
+            - VERDICT_RECEIVED
+            - TIMEOUT
+            - DLQ
+          description: >
+            PENDING: job is in queue or processing — verdict not yet available.
+            VERDICT_RECEIVED: Cube has evaluated; see verdict field.
+            TIMEOUT: job exceeded TTL without processing.
+            DLQ: job moved to dead letter queue; see dlq_reason field.
+
+        verdict:
+          type: string
+          enum:
+            - WATCHLIST
+            - SUSPEND
+            - NEAR_MISS
+          description: "Present only when status is VERDICT_RECEIVED."
+
+        audit_ledger_entry_id:
+          type: string
+          format: uuid
+          description: "Present only when status is VERDICT_RECEIVED."
+
+        dlq_reason:
+          type: string
+          enum:
+            - TTL_EXCEEDED
+            - CUBE_UNREACHABLE
+            - VALIDATION_FAILURE
+            - PLANE_CRASH
+          description: "Present only when status is DLQ."
+
+        evaluated_at:
+          type: string
+          format: date-time
+          description: "Present only when status is VERDICT_RECEIVED."

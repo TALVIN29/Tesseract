@@ -1,0 +1,162 @@
+# ============================================================
+# PROJECT TESSERACT — SegmentationPayload Schema
+# OpenAPI 3.1 Component Definition
+# Audit Finding 3A: This schema was absent from the original PRD.
+# It is now a non-negotiable architectural invariant.
+# ============================================================
+# Used by:
+#   - Sphere API gateway (constructs this payload)
+#   - n8n Planes (validates and enriches this payload)
+#   - NearMissPacket (embeds as segmentation_context)
+# ============================================================
+
+openapi: "3.1.0"
+info:
+  title: Tesseract SegmentationPayload Schema
+  version: "1.0.0"
+
+components:
+  schemas:
+    SegmentationPayload:
+      type: object
+      description: >
+        Structured context envelope injected by the Sphere into every event.
+        Enriched by n8n Planes before forwarding to the Cube.
+        All 7 required fields must be present. PII is never included.
+      required:
+        - session_id
+        - entity_id_hashed
+        - user_tier
+        - behavioral_cohort
+        - risk_band_last_known
+        - session_start_timestamp
+        - geo_context
+      additionalProperties: false
+      properties:
+
+        session_id:
+          type: string
+          format: uuid
+          description: >
+            UUID identifying the current user session.
+            Rotated on re-authentication. Never persisted beyond session boundary.
+          example: "a3f2c1d0-1234-4abc-8def-000000000001"
+
+        entity_id_hashed:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: '^[a-f0-9]{64}$'
+          description: >
+            SHA-256 hex digest of the entity's canonical identifier.
+            NEVER contains raw PII. The Cube only ever sees this hashed form.
+          example: "2c624232cdd221771294dfbb310acbc8435a2540b2b5e4ffe77d52d4a3b44e31"
+
+        user_tier:
+          type: string
+          enum:
+            - STANDARD
+            - ELEVATED
+            - RESTRICTED
+          description: >
+            Access tier assigned to this entity at session start.
+            STANDARD: default access.
+            ELEVATED: verified/institutional entity with higher limits.
+            RESTRICTED: entity flagged for limited access pending review.
+          example: "STANDARD"
+
+        behavioral_cohort:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >
+            Cohort label assigned by the CohortAgent (Claude Haiku 4.5).
+            Represents the entity's behavioral archetype relative to the user population.
+            Examples: "retail-low-frequency", "institutional-high-velocity", "new-user-onboarding"
+          example: "retail-low-frequency"
+
+        risk_band_last_known:
+          type: string
+          enum:
+            - CLEAN
+            - WATCHLIST
+            - SUSPENDED
+            - UNKNOWN
+          description: >
+            Read-only field reflecting the last verdict the Cube issued for this entity.
+            NEVER written by the Sphere — populated from Cube verdict cache by the AI Orchestrator.
+            UNKNOWN if no prior Cube verdict exists for this entity_id_hashed.
+          example: "CLEAN"
+          readOnly: true
+
+        session_start_timestamp:
+          type: string
+          format: date-time
+          description: >
+            ISO 8601 timestamp of when the current session was established.
+            Used by the Cube for velocity and temporal consistency checks.
+          example: "2026-06-08T10:00:00Z"
+
+        geo_context:
+          type: object
+          description: >
+            Geographic context of the session. Derived from IP geolocation.
+            Used by the Cube for Edge E7 (Geographic Restrictions).
+          required:
+            - country_code
+            - is_vpn
+            - is_tor
+          additionalProperties: false
+          properties:
+
+            country_code:
+              type: string
+              minLength: 2
+              maxLength: 2
+              pattern: '^[A-Z]{2}$'
+              description: "ISO 3166-1 alpha-2 country code."
+              example: "SG"
+
+            region:
+              type: string
+              maxLength: 128
+              description: "State or region within the country (optional)."
+              example: "Central Singapore"
+
+            city:
+              type: string
+              maxLength: 128
+              description: "City name (optional, best-effort geolocation)."
+              example: "Singapore"
+
+            latitude:
+              type: number
+              minimum: -90
+              maximum: 90
+              description: "Approximate latitude (optional). Used for distance calculations."
+
+            longitude:
+              type: number
+              minimum: -180
+              maximum: 180
+              description: "Approximate longitude (optional). Used for distance calculations."
+
+            is_vpn:
+              type: boolean
+              description: >
+                True if the session IP is identified as a VPN endpoint.
+                Contributes to risk signal scoring.
+              example: false
+
+            is_tor:
+              type: boolean
+              description: >
+                True if the session IP is a known Tor exit node.
+                Contributes to risk signal scoring with higher weight than is_vpn.
+              example: false
+
+            isp:
+              type: string
+              maxLength: 128
+              description: "Internet Service Provider name (optional)."
+              example: "Singtel"

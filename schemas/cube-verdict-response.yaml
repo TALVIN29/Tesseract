@@ -1,0 +1,113 @@
+# ============================================================
+# PROJECT TESSERACT — CubeVerdictResponse Schema
+# OpenAPI 3.1 Component Definition
+# Audit Patch applied:
+#   Idempotency: already_processed field added for duplicate packet_id handling
+# ============================================================
+# Transport: Cube → Plane (synchronous response to POST /api/v1/cube/evaluate)
+# The Cube NEVER initiates. This is always a response, never a push.
+# ============================================================
+
+openapi: "3.1.0"
+info:
+  title: Tesseract CubeVerdictResponse Schema
+  version: "1.0.0"
+
+components:
+  schemas:
+    CubeVerdictResponse:
+      type: object
+      description: >
+        The sole output type produced by the Inner Cube's evaluate endpoint.
+        Returned synchronously to the calling Plane service.
+        The Plane is responsible for forwarding the verdict to the Sphere
+        via POST /api/sphere/notify (with exponential backoff — Audit Finding 1C).
+      required:
+        - packet_id
+        - verdict
+        - rule_version_applied
+        - audit_ledger_entry_id
+        - evaluation_timestamp
+        - remediation_required
+        - already_processed
+      additionalProperties: false
+      properties:
+
+        packet_id:
+          type: string
+          format: uuid
+          description: >
+            Echo of the packet_id from the input NearMissPacket.
+            Allows the Plane to correlate this response with the original job_id.
+          example: "b7e3f2a1-5678-4cde-9012-abcdef123456"
+
+        verdict:
+          type: string
+          enum:
+            - WATCHLIST
+            - SUSPEND
+            - NEAR_MISS
+          description: >
+            EXACTLY one of three values. No other verdict values are valid.
+            No null, no undefined, no traffic-light equivalents.
+              WATCHLIST: entity remains active, heightened monitoring applied.
+              SUSPEND:   entity access terminated immediately, re-verification required.
+              NEAR_MISS: compliance event logged, 48-hour post-mortem triggered.
+            Severity order: SUSPEND > NEAR_MISS > WATCHLIST.
+          example: "NEAR_MISS"
+
+        rule_version_applied:
+          type: string
+          minLength: 40
+          maxLength: 40
+          pattern: '^[a-f0-9]{40}$'
+          description: >
+            Git commit SHA of the rule YAML set used for this evaluation.
+            Written to the Audit Ledger. Enables exact rule replay for any past verdict.
+          example: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+
+        audit_ledger_entry_id:
+          type: string
+          format: uuid
+          description: >
+            UUID of the row written to the immutable Audit Ledger for this evaluation.
+            Used by the reconciliation endpoint (GET /api/sphere/verdict/:job_id)
+            to fetch verdict status without re-evaluating.
+          example: "d4e5f6a1-b2c3-4d5e-6f7a-8b9c0d1e2f3a"
+
+        evaluation_timestamp:
+          type: string
+          format: date-time
+          description: >
+            ISO 8601 timestamp of when the Cube completed evaluation.
+            Written to the Audit Ledger.
+          example: "2026-06-08T10:15:31.042Z"
+
+        remediation_required:
+          type: boolean
+          description: >
+            If true, the entity must complete a re-verification workflow before
+            operational access is restored. Always true for SUSPEND verdict.
+            May be true for NEAR_MISS depending on matched rules.
+          example: false
+
+        already_processed:
+          type: boolean
+          description: >
+            Audit Patch: idempotency flag.
+            True if this packet_id was already evaluated in a prior request.
+            When true, the verdict and audit_ledger_entry_id reflect the ORIGINAL
+            evaluation — no re-evaluation was performed.
+            The Plane MUST NOT retry when already_processed is true.
+          example: false
+
+        matched_rules:
+          type: array
+          description: >
+            Optional: list of rule IDs from the YAML rule store that were matched
+            during evaluation. Written to Audit Ledger. Useful for post-mortem review.
+          items:
+            type: string
+          example:
+            - "base-edges.e2.auth-anomaly-threshold"
+            - "vertical-edges.e6.velocity-rules.soft-breach"

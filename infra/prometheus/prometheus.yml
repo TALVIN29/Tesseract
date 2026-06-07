@@ -1,0 +1,61 @@
+# ============================================================
+# PROJECT TESSERACT — Prometheus Scrape Configuration
+# ============================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    project: 'tesseract'
+    environment: 'local-dev'
+
+# Alertmanager (stub — configure in Sprint 2)
+alerting:
+  alertmanagers: []
+
+rule_files: []
+
+scrape_configs:
+  # ------------------------------------------------------------
+  # Prometheus self-monitoring
+  # ------------------------------------------------------------
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ------------------------------------------------------------
+  # Inner Cube — Fastify API
+  # Sprint 0: stub server does not expose /metrics yet
+  # Sprint 1: Fastify will expose metrics via fastify-metrics plugin
+  # ------------------------------------------------------------
+  - job_name: 'tesseract-cube'
+    static_configs:
+      - targets: ['cube-api:3100']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # ------------------------------------------------------------
+  # n8n Automation Engine
+  # n8n exposes Prometheus metrics at /metrics when enabled
+  # Enable via: N8N_METRICS=true in docker-compose
+  # ------------------------------------------------------------
+  - job_name: 'tesseract-n8n'
+    static_configs:
+      - targets: ['n8n:5678']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # ------------------------------------------------------------
+  # Redis Exporter (Sprint 1 addition — placeholder)
+  # Uncomment when redis-exporter service is added to docker-compose
+  # ------------------------------------------------------------
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+
+  # ------------------------------------------------------------
+  # PostgreSQL Exporter (Sprint 1 addition — placeholder)
+  # ------------------------------------------------------------
+  # - job_name: 'postgres-cube'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']

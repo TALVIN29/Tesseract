@@ -1,0 +1,242 @@
+# ============================================================
+# PROJECT TESSERACT — Docker Compose Stack
+# Sprint 0: Full 7-service environment bootstrap
+# ============================================================
+# Usage:
+#   cp .env.example .env && fill in values
+#   docker compose up -d
+#   docker compose ps          — check all services healthy
+#   docker compose logs -f     — stream all logs
+# ============================================================
+
+name: tesseract
+
+networks:
+  tesseract-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
+volumes:
+  postgres-cube-data:
+  postgres-planes-data:
+  redis-data:
+  n8n-data:
+  grafana-data:
+  prometheus-data:
+
+services:
+
+  # ----------------------------------------------------------
+  # postgres-cube: Audit Ledger database (WORM enforced)
+  # Accessible ONLY by cube-api within tesseract-internal
+  # ----------------------------------------------------------
+  postgres-cube:
+    image: postgres:16-alpine
+    container_name: tesseract-postgres-cube
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tesseract_cube
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_CUBE_PASSWORD:-changeme}
+    volumes:
+      - postgres-cube-data:/var/lib/postgresql/data
+      - ./postgres-cube/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "5433:5432"      # Mapped to 5433 to avoid conflict with local postgres
+    networks:
+      - tesseract-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tesseract_cube"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ----------------------------------------------------------
+  # postgres-planes: Plane state store (mutable, not WORM)
+  # ----------------------------------------------------------
+  postgres-planes:
+    image: postgres:16-alpine
+    container_name: tesseract-postgres-planes
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tesseract_planes
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PLANES_PASSWORD:-changeme}
+    volumes:
+      - postgres-planes-data:/var/lib/postgresql/data
+      - ./postgres-planes/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "5434:5432"
+    networks:
+      - tesseract-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tesseract_planes"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ----------------------------------------------------------
+  # redis: Shock Absorption Queue + Pub/Sub (lockdown channel)
+  # appendonly + noeviction enforced via redis.conf
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: tesseract-redis
+    restart: unless-stopped
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "6379:6379"
+    networks:
+      - tesseract-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ----------------------------------------------------------
+  # n8n: 2D Planes automation engine (self-hosted)
+  # Webhook URL must be set to internal Docker DNS for Plane-to-Cube calls
+  # ----------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: tesseract-n8n
+    restart: unless-stopped
+    environment:
+      # Auth
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-changeme}
+      # Encryption (required for credential storage)
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-changeme_use_openssl_rand_hex_32}
+      # Webhook URL: must be internal Docker DNS — NOT localhost
+      # n8n uses this URL when constructing webhook paths for sub-workflow calls
+      WEBHOOK_URL: http://n8n:5678/
+      # Database (n8n internal state — uses postgres-planes)
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres-planes
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: tesseract_planes
+      DB_POSTGRESDB_USER: postgres
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PLANES_PASSWORD:-changeme}
+      # Timezone
+      GENERIC_TIMEZONE: UTC
+      # Metrics (enables /metrics endpoint for Prometheus scraping)
+      N8N_METRICS: "true"
+      # Execution data pruning (keep 30 days)
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 720
+    volumes:
+      - n8n-data:/home/node/.n8n
+    ports:
+      - "5678:5678"
+    networks:
+      - tesseract-internal
+    depends_on:
+      postgres-planes:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s    # n8n takes time to initialize DB migrations
+
+  # ----------------------------------------------------------
+  # cube-api: Inner Cube Fastify API
+  # Sprint 0: running a minimal Node.js stub (server.js)
+  # Sprint 1: replaced by full Fastify application (TESS-015)
+  # ----------------------------------------------------------
+  cube-api:
+    image: node:20-alpine
+    container_name: tesseract-cube-api
+    restart: unless-stopped
+    environment:
+      CUBE_PORT: 3100
+      NODE_ENV: development
+    volumes:
+      - ./cube-stub:/app:ro
+    working_dir: /app
+    command: node server.js
+    ports:
+      - "3100:3100"
+    networks:
+      - tesseract-internal
+    depends_on:
+      postgres-cube:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3100/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------
+  # prometheus: Metrics collection
+  # ----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: tesseract-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - prometheus-data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - tesseract-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ----------------------------------------------------------
+  # grafana: Dashboards
+  # Default login: admin / ${GRAFANA_ADMIN_PASSWORD}
+  # Provisioned with Prometheus datasource automatically
+  # ----------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: tesseract-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_HTTP_PORT: 3001
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3001"
+    networks:
+      - tesseract-internal
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3001/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
