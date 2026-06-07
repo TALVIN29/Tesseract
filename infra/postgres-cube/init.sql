@@ -111,8 +111,11 @@ BEGIN
         END IF;
     END;
 
-    -- Clean up test row (this is the only DELETE ever permitted — at init time via superuser)
-    DELETE FROM audit_ledger WHERE id = test_id;
-    RAISE NOTICE 'WORM init verification complete. Audit Ledger is operational.';
+    -- NOTE: The test row is intentionally NOT deleted.
+    -- The WORM triggers block DELETE for ALL roles including the superuser.
+    -- This is correct behaviour. The init verification row with
+    -- packet_id = '00000000-0000-0000-0000-000000000000' is the permanent
+    -- genesis entry of the Audit Ledger. It is identifiable and benign.
+    RAISE NOTICE 'WORM init verification complete. Audit Ledger genesis entry id=% is permanent.', test_id;
 END;
 $$;
