@@ -88,8 +88,7 @@ def get_doc(doc_id: str):
 @app.put("/api/docs/{doc_id:path}")
 def update_doc(doc_id: str, body: DocUpdate):
     path = _safe_path(doc_id)
-    if not path.exists():
-        raise HTTPException(404, "Document not found")
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body.content, encoding="utf-8")
     upsert_doc(doc_id, body.content)
     return {"ok": True}
@@ -230,7 +229,7 @@ def approve_pending(pid: str):
     item = pending.pop(pid, None)
     if not item:
         raise HTTPException(404, "Pending item not found")
-    path = Path(item["doc_id"])
+    path = _safe_path(item["doc_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(item["new_content"], encoding="utf-8")
     upsert_doc(item["doc_id"], item["new_content"])
