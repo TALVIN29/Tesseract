@@ -299,16 +299,32 @@ async function loadPendingSection() {
   const list = document.getElementById('pending-list');
   if (items.length === 0) { sec.classList.add('hidden'); return; }
   sec.classList.remove('hidden');
-  list.innerHTML = items.map(item => `
-    <div class="pending-item" data-id="${item.id}">
-      <div class="pending-item-path">${item.doc_id}</div>
-      <div class="pending-item-actions">
-        <button class="btn-secondary" onclick="showDiff('${item.id}')">View Diff</button>
-        <button class="btn-primary" onclick="approvePending('${item.id}')">Approve</button>
-        <button class="btn-danger" onclick="rejectPending('${item.id}')">Reject</button>
-      </div>
-    </div>
-  `).join('');
+  list.innerHTML = '';
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'pending-item';
+    div.dataset.id = item.id;
+    const pathDiv = document.createElement('div');
+    pathDiv.className = 'pending-item-path';
+    pathDiv.textContent = item.doc_id;  // textContent escapes HTML
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'pending-item-actions';
+    const diffBtn = document.createElement('button');
+    diffBtn.className = 'btn-secondary';
+    diffBtn.textContent = 'View Diff';
+    diffBtn.addEventListener('click', () => showDiff(item.id));
+    const approveBtn = document.createElement('button');
+    approveBtn.className = 'btn-primary';
+    approveBtn.textContent = 'Approve';
+    approveBtn.addEventListener('click', () => approvePending(item.id));
+    const rejectBtn = document.createElement('button');
+    rejectBtn.className = 'btn-danger';
+    rejectBtn.textContent = 'Reject';
+    rejectBtn.addEventListener('click', () => rejectPending(item.id));
+    actionsDiv.append(diffBtn, approveBtn, rejectBtn);
+    div.append(pathDiv, actionsDiv);
+    list.appendChild(div);
+  });
 }
 
 let pendingItems = {};
