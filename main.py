@@ -242,7 +242,7 @@ async def lint(body: LintBody):
     async def generate():
         if body.dept == "all":
             all_docs = list_all_docs()
-            pages = {k: v for k, v in all_docs.items() if "knowledge" in k}
+            pages = {k: v for k, v in all_docs.items() if Path(k).parts[0] == "knowledge"}
         else:
             pages = {f"knowledge/{body.dept}/{k}": v
                      for k, v in list_wiki_pages(body.dept).items()}
@@ -284,11 +284,12 @@ async def seed():
 def stats():
     from store import _col
     all_docs = list_all_docs()
-    knowledge = sum(1 for p in all_docs if "knowledge" in p)
-    meetings = sum(1 for p in all_docs if "meetings" in p)
+    knowledge = sum(1 for p in all_docs if Path(p).parts[0] == "knowledge")
+    meetings = sum(1 for p in all_docs if Path(p).parts[0] == "meetings")
+    agency = len([id for id in _col.get()["ids"] if id.startswith("agency:")])
     return {
         "total": _col.count(),
         "knowledge": knowledge,
         "meetings": meetings,
-        "agency": _col.count() - len(all_docs),
+        "agency": agency,
     }
