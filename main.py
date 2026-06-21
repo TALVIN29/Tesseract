@@ -80,3 +80,43 @@ def hub(dept: str, doc: str):
     backlinks = build_backlinks()
     linked_from = backlinks.get(f"{dept}/{doc}", [])
     return {"content": content, "backlinks": linked_from}
+
+
+# ---------------------------------------------------------------------------
+# HITL Pending Queue
+# ---------------------------------------------------------------------------
+
+def queue_overwrite(doc_id: str, old_content: str, new_content: str) -> str:
+    pid = str(uuid.uuid4())
+    pending[pid] = {
+        "id": pid,
+        "doc_id": doc_id,
+        "old_content": old_content,
+        "new_content": new_content,
+    }
+    return pid
+
+
+@app.get("/api/pending")
+def list_pending():
+    return list(pending.values())
+
+
+@app.post("/api/pending/{pid}/approve")
+def approve_pending(pid: str):
+    item = pending.pop(pid, None)
+    if not item:
+        raise HTTPException(404, "Pending item not found")
+    path = Path(item["doc_id"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(item["new_content"], encoding="utf-8")
+    upsert_doc(item["doc_id"], item["new_content"])
+    return {"ok": True}
+
+
+@app.delete("/api/pending/{pid}")
+def reject_pending(pid: str):
+    if pid not in pending:
+        raise HTTPException(404, "Pending item not found")
+    pending.pop(pid)
+    return {"ok": True}
