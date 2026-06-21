@@ -28,6 +28,14 @@ class IngestBody(BaseModel):
     text: str
 
 
+class SearchBody(BaseModel):
+    query: str
+
+
+class LintBody(BaseModel):
+    dept: str = "all"
+
+
 def sse(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
@@ -198,3 +206,89 @@ def reject_pending(pid: str):
         raise HTTPException(404, "Pending item not found")
     pending.pop(pid)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# SSE Search Endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/search")
+async def search(body: SearchBody):
+    if not body.query.strip():
+        raise HTTPException(400, "query required")
+
+    async def generate():
+        from store import chroma_search
+        docs = await asyncio.to_thread(chroma_search, body.query, 5)
+        if not docs:
+            yield sse({"chunk": "No documents found. Ingest some content first."})
+            return
+        result = await asyncio.to_thread(ai.search, body.query, docs)
+        for word in result.split(" "):
+            yield sse({"chunk": word + " "})
+            await asyncio.sleep(0.01)
+        yield sse({"chunk": "", "done": True})
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------------------
+# SSE Lint Endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/lint")
+async def lint(body: LintBody):
+    async def generate():
+        if body.dept == "all":
+            all_docs = list_all_docs()
+            pages = {k: v for k, v in all_docs.items() if "knowledge" in k}
+        else:
+            pages = {f"knowledge/{body.dept}/{k}": v
+                     for k, v in list_wiki_pages(body.dept).items()}
+        if not pages:
+            yield sse({"chunk": "No wiki pages found."})
+            return
+        result = await asyncio.to_thread(ai.lint_wiki, pages)
+        for word in result.split(" "):
+            yield sse({"chunk": word + " "})
+            await asyncio.sleep(0.01)
+        yield sse({"chunk": "", "done": True})
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------------------
+# SSE Seed Endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/seed")
+async def seed():
+    async def generate():
+        yield sse({"status": "cloning", "progress": 0})
+        n = await asyncio.to_thread(
+            seed_from_repo, "https://github.com/msitarzewski/agency-agents"
+        )
+        yield sse({"status": "done", "progress": n, "total": n})
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------------------
+# Stats Endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/api/stats")
+def stats():
+    from store import _col
+    all_docs = list_all_docs()
+    knowledge = sum(1 for p in all_docs if "knowledge" in p)
+    meetings = sum(1 for p in all_docs if "meetings" in p)
+    return {
+        "total": _col.count(),
+        "knowledge": knowledge,
+        "meetings": meetings,
+        "agency": _col.count() - len(all_docs),
+    }
