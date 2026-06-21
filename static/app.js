@@ -277,3 +277,169 @@ async function doSearch() {
     }
   });
 }
+
+// ── Hub View ───────────────────────────────────────────
+async function loadHub() {
+  const r = await fetch(`/api/hub/${hubDept}/${hubDoc}`);
+  const {content, backlinks} = await r.json();
+  document.getElementById('hub-content').innerHTML = DOMPurify.sanitize(marked.parse(content));
+  document.getElementById('hub-edit-area').classList.add('hidden');
+  document.getElementById('hub-content').classList.remove('hidden');
+  document.getElementById('hub-editor').value = content;
+  const bl = document.getElementById('hub-backlinks');
+  bl.innerHTML = backlinks.length
+    ? `<p class="text-muted">Referenced by: ${backlinks.map(p => `<code>${p}</code>`).join(', ')}</p>`
+    : '';
+  await loadPendingSection();
+}
+
+async function loadPendingSection() {
+  const items = await fetch('/api/pending').then(r => r.json());
+  const sec = document.getElementById('pending-section');
+  const list = document.getElementById('pending-list');
+  if (items.length === 0) { sec.classList.add('hidden'); return; }
+  sec.classList.remove('hidden');
+  list.innerHTML = items.map(item => `
+    <div class="pending-item" data-id="${item.id}">
+      <div class="pending-item-path">${item.doc_id}</div>
+      <div class="pending-item-actions">
+        <button class="btn-secondary" onclick="showDiff('${item.id}')">View Diff</button>
+        <button class="btn-primary" onclick="approvePending('${item.id}')">Approve</button>
+        <button class="btn-danger" onclick="rejectPending('${item.id}')">Reject</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+let pendingItems = {};
+
+async function showDiff(pid) {
+  const items = await fetch('/api/pending').then(r => r.json());
+  const item = items.find(i => i.id === pid);
+  if (!item) return;
+  pendingItems[pid] = item;
+  document.getElementById('diff-old').textContent = item.old_content;
+  document.getElementById('diff-new').textContent = item.new_content;
+  document.getElementById('diff-overlay').classList.remove('hidden');
+  document.getElementById('diff-confirm').onclick = () => approvePending(pid);
+}
+
+async function approvePending(pid) {
+  await fetch(`/api/pending/${pid}/approve`, {method: 'POST'});
+  document.getElementById('diff-overlay').classList.add('hidden');
+  await loadHub();
+  await refreshStats();
+}
+
+async function rejectPending(pid) {
+  await fetch(`/api/pending/${pid}`, {method: 'DELETE'});
+  await loadHub();
+  await refreshStats();
+}
+
+document.getElementById('diff-cancel').addEventListener('click', () => {
+  document.getElementById('diff-overlay').classList.add('hidden');
+});
+
+// Dept tabs
+document.querySelectorAll('#dept-tabs .tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#dept-tabs .tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    hubDept = btn.dataset.dept;
+    loadHub();
+  });
+});
+
+// Doc tabs
+document.querySelectorAll('#doc-tabs .tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#doc-tabs .tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    hubDoc = btn.dataset.doc;
+    loadHub();
+  });
+});
+
+// Hub edit → HITL overwrite modal
+document.getElementById('hub-edit-btn').addEventListener('click', () => {
+  document.getElementById('hub-content').classList.add('hidden');
+  document.getElementById('hub-edit-area').classList.remove('hidden');
+});
+
+document.getElementById('hub-cancel').addEventListener('click', () => {
+  document.getElementById('hub-content').classList.remove('hidden');
+  document.getElementById('hub-edit-area').classList.add('hidden');
+});
+
+document.getElementById('hub-save').addEventListener('click', async () => {
+  const newContent = document.getElementById('hub-editor').value;
+  const docId = `knowledge/${hubDept}/${hubDoc}.md`;
+  // HITL: show diff before overwriting
+  const r = await fetch(`/api/docs/${encodeURIComponent(docId)}`);
+  if (!r.ok) {
+    // New doc — auto-create, no HITL
+    await fetch(`/api/docs/${encodeURIComponent(docId)}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content: newContent}),
+    });
+    loadHub();
+    return;
+  }
+  const {content: oldContent} = await r.json();
+  document.getElementById('diff-old').textContent = oldContent;
+  document.getElementById('diff-new').textContent = newContent;
+  document.getElementById('diff-overlay').classList.remove('hidden');
+  document.getElementById('diff-confirm').onclick = async () => {
+    await fetch(`/api/docs/${encodeURIComponent(docId)}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content: newContent}),
+    });
+    document.getElementById('diff-overlay').classList.add('hidden');
+    document.getElementById('hub-content').classList.remove('hidden');
+    document.getElementById('hub-edit-area').classList.add('hidden');
+    loadHub();
+  };
+});
+
+// ── Lint View ──────────────────────────────────────────
+document.getElementById('lint-btn').addEventListener('click', async () => {
+  const dept = document.getElementById('lint-dept').value;
+  const output = document.getElementById('lint-output');
+  output.innerHTML = '<p class="text-muted">Running audit...</p>';
+  let accumulated = '';
+  await streamSSE('/api/lint', {dept}, (evt) => {
+    if (evt.chunk !== undefined) {
+      accumulated += evt.chunk;
+      output.innerHTML = DOMPurify.sanitize(marked.parse(accumulated));
+    }
+  });
+});
+
+// ── Data View ──────────────────────────────────────────
+async function loadStats() {
+  const stats = await fetch('/api/stats').then(r => r.json());
+  document.getElementById('dc-total').textContent = stats.total ?? '—';
+  document.getElementById('dc-knowledge').textContent = stats.knowledge ?? '—';
+  document.getElementById('dc-meetings').textContent = stats.meetings ?? '—';
+  document.getElementById('dc-agency').textContent = stats.agency ?? '—';
+}
+
+document.getElementById('seed-btn').addEventListener('click', async () => {
+  const progress = document.getElementById('seed-progress');
+  const bar = document.getElementById('seed-bar');
+  const label = document.getElementById('seed-label');
+  progress.classList.remove('hidden');
+  bar.style.width = '5%';
+  label.textContent = 'Cloning agency-agents repo...';
+  await streamSSE('/api/seed', {}, (evt) => {
+    if (evt.status === 'done') {
+      bar.style.width = '100%';
+      label.textContent = `Seeded ${evt.total} documents.`;
+      loadStats();
+      refreshStats();
+    }
+  });
+});
