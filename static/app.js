@@ -123,7 +123,7 @@ async function showDetail(docId) {
   document.getElementById('detail-type').textContent = metadata.type;
   document.getElementById('detail-type').className = 'badge-pill badge-green';
   document.getElementById('detail-updated').textContent = `Updated ${metadata.updated_at}`;
-  document.getElementById('detail-content').innerHTML = marked.parse(content);
+  document.getElementById('detail-content').innerHTML = DOMPurify.sanitize(marked.parse(content));
   const panel = document.getElementById('detail-panel');
   panel.classList.remove('hidden');
   setTimeout(() => panel.classList.add('open'), 10);
