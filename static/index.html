@@ -1,3 +1,216 @@
 <!DOCTYPE html>
-<html><head><title>Tesseract</title></head>
-<body><h1>Tesseract Knowledge Hub</h1></body></html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tesseract Knowledge Hub</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css">
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside id="sidebar">
+  <div class="sidebar-header">
+    <span class="logo">⬡</span>
+    <span class="logo-text">TESSERACT</span>
+  </div>
+  <nav>
+    <a class="nav-item active" data-view="graph">
+      <span class="nav-icon">◈</span><span class="nav-label">Graph</span>
+    </a>
+    <a class="nav-item" data-view="search">
+      <span class="nav-icon">⌕</span><span class="nav-label">Search</span>
+    </a>
+    <a class="nav-item" data-view="ingest">
+      <span class="nav-icon">↑</span><span class="nav-label">Ingest</span>
+    </a>
+    <a class="nav-item" data-view="hub" id="hub-nav">
+      <span class="nav-icon">◎</span>
+      <span class="nav-label">Hub</span>
+      <span class="badge hidden" id="pending-badge">0</span>
+    </a>
+    <a class="nav-item" data-view="lint">
+      <span class="nav-icon">✓</span><span class="nav-label">Lint</span>
+    </a>
+    <a class="nav-item" data-view="data">
+      <span class="nav-icon">⊞</span><span class="nav-label">Data</span>
+    </a>
+  </nav>
+  <div class="sidebar-footer" id="sidebar-stats">
+    <div class="stat-row"><span class="stat-label">Indexed</span><span class="stat-val" id="stat-total">—</span></div>
+    <div class="stat-row"><span class="stat-label">Knowledge</span><span class="stat-val" id="stat-knowledge">—</span></div>
+    <div class="stat-row"><span class="stat-label">Meetings</span><span class="stat-val" id="stat-meetings">—</span></div>
+  </div>
+</aside>
+
+<!-- Main content -->
+<main id="main">
+
+  <!-- Graph view (default) -->
+  <section id="view-graph" class="view active">
+    <div id="graph-toolbar">
+      <span id="graph-node-count" class="chip">Loading...</span>
+      <select id="graph-filter" class="filter-select">
+        <option value="all">All nodes</option>
+        <option value="knowledge">Knowledge</option>
+        <option value="meetings">Meetings</option>
+        <option value="agency">Agency</option>
+      </select>
+    </div>
+    <div id="graph-canvas"></div>
+    <div id="graph-controls">
+      <button class="ctrl-btn" id="zoom-in">+</button>
+      <button class="ctrl-btn" id="zoom-out">−</button>
+      <button class="ctrl-btn" id="zoom-fit">⊡</button>
+    </div>
+  </section>
+
+  <!-- Search view -->
+  <section id="view-search" class="view">
+    <div class="view-inner">
+      <input id="search-input" class="search-bar" placeholder="Search knowledge base... (⌘K)" autofocus>
+      <div id="search-results"></div>
+    </div>
+  </section>
+
+  <!-- Ingest view -->
+  <section id="view-ingest" class="view">
+    <div class="view-inner">
+      <div id="drop-zone">
+        <div class="drop-icon">↑</div>
+        <div class="drop-label">Drop file or click to upload</div>
+        <div class="drop-types">.mp3 .mp4 .wav .png .jpg .pdf .txt .md</div>
+        <input type="file" id="file-input" hidden accept=".mp3,.mp4,.wav,.m4a,.webm,.png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.md">
+      </div>
+      <div class="or-divider">or</div>
+      <textarea id="ingest-text" class="ingest-textarea" placeholder="Paste meeting notes or any text..."></textarea>
+      <button id="ingest-btn" class="btn-primary" disabled>Process →</button>
+      <div id="ingest-progress" class="hidden">
+        <div class="progress-step" id="ps-classifying"><span class="step-dot">◌</span> Classifying...</div>
+        <div class="progress-step" id="ps-extracting"><span class="step-dot">◌</span> Extracting items...</div>
+        <div class="progress-step" id="ps-compiling"><span class="step-dot">◌</span> Compiling to wiki...</div>
+        <div class="progress-step" id="ps-indexed"><span class="step-dot">◌</span> Indexing...</div>
+      </div>
+      <div id="ingest-done" class="hidden">
+        <p class="success-msg" id="ingest-result"></p>
+        <button class="btn-secondary" id="view-in-graph">View in Graph →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Hub view -->
+  <section id="view-hub" class="view">
+    <div class="view-inner">
+      <div class="hub-toolbar">
+        <div class="tab-group" id="dept-tabs">
+          <button class="tab active" data-dept="engineering">Engineering</button>
+          <button class="tab" data-dept="hr">HR</button>
+        </div>
+        <div class="tab-group" id="doc-tabs">
+          <button class="tab active" data-doc="skill">skill</button>
+          <button class="tab" data-doc="soul">soul</button>
+          <button class="tab" data-doc="log">log</button>
+        </div>
+        <button class="btn-secondary" id="hub-edit-btn">Edit</button>
+      </div>
+      <div id="pending-section" class="hidden">
+        <h3 class="pending-title">⚠ Pending AI Changes</h3>
+        <div id="pending-list"></div>
+      </div>
+      <div id="hub-content" class="markdown-body"></div>
+      <div id="hub-edit-area" class="hidden">
+        <textarea id="hub-editor" class="hub-textarea"></textarea>
+        <div class="edit-actions">
+          <button class="btn-secondary" id="hub-cancel">Cancel</button>
+          <button class="btn-primary" id="hub-save">Save</button>
+        </div>
+      </div>
+      <div id="hub-backlinks"></div>
+    </div>
+  </section>
+
+  <!-- Lint view -->
+  <section id="view-lint" class="view">
+    <div class="view-inner">
+      <div class="lint-toolbar">
+        <select id="lint-dept" class="filter-select">
+          <option value="all">All departments</option>
+          <option value="engineering">Engineering</option>
+          <option value="hr">HR</option>
+        </select>
+        <button class="btn-primary" id="lint-btn">Run Audit</button>
+      </div>
+      <div id="lint-output" class="markdown-body"></div>
+    </div>
+  </section>
+
+  <!-- Data view -->
+  <section id="view-data" class="view">
+    <div class="view-inner">
+      <h2 class="view-title">Data</h2>
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-card-val" id="dc-total">—</div><div class="stat-card-label">Total indexed</div></div>
+        <div class="stat-card"><div class="stat-card-val" id="dc-knowledge">—</div><div class="stat-card-label">Knowledge pages</div></div>
+        <div class="stat-card"><div class="stat-card-val" id="dc-meetings">—</div><div class="stat-card-label">Meeting records</div></div>
+        <div class="stat-card"><div class="stat-card-val" id="dc-agency">—</div><div class="stat-card-label">Agency agents</div></div>
+      </div>
+      <button class="btn-secondary" id="seed-btn">Seed from agency-agents (232 docs)</button>
+      <div id="seed-progress" class="hidden">
+        <div class="progress-bar-track"><div class="progress-bar-fill" id="seed-bar"></div></div>
+        <div class="progress-label" id="seed-label">Cloning...</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Detail panel (slides from right) -->
+<aside id="detail-panel" class="hidden">
+  <button id="detail-close">✕</button>
+  <h2 id="detail-title"></h2>
+  <div class="detail-meta">
+    <span class="badge" id="detail-dept"></span>
+    <span class="badge" id="detail-type"></span>
+    <span class="text-muted" id="detail-updated"></span>
+  </div>
+  <div id="detail-content" class="markdown-body"></div>
+  <div id="detail-backlinks"></div>
+  <div class="detail-actions">
+    <button class="btn-secondary" id="detail-edit">Edit</button>
+    <button class="btn-danger" id="detail-delete">Delete</button>
+  </div>
+</aside>
+
+<!-- Delete confirmation modal -->
+<div id="modal-overlay" class="hidden">
+  <div id="modal">
+    <h3 id="modal-title">Confirm Delete</h3>
+    <p id="modal-body"></p>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="modal-cancel">Cancel</button>
+      <button class="btn-danger" id="modal-confirm">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Overwrite diff modal -->
+<div id="diff-overlay" class="hidden">
+  <div id="diff-modal">
+    <h3>Confirm Overwrite</h3>
+    <div class="diff-cols">
+      <div><h4>Before</h4><pre id="diff-old"></pre></div>
+      <div><h4>After</h4><pre id="diff-new"></pre></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="diff-cancel">Cancel</button>
+      <button class="btn-primary" id="diff-confirm">Confirm Overwrite</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
