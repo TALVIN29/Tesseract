@@ -18,7 +18,7 @@ def test_graph_shape():
 
 
 def test_get_doc_missing():
-    r = client.get("/api/docs/nonexistent%2Ffile.md")
+    r = client.get("/api/docs/knowledge%2Fnonexistent%2Ffile.md")
     assert r.status_code == 404
 
 

@@ -23,6 +23,16 @@ from store import (
 )
 
 
+_ALLOWED_ROOTS = ("knowledge", "meetings")
+
+def _safe_path(doc_id: str) -> Path:
+    p = Path(doc_id)
+    # Resolve to absolute, then check it doesn't escape allowed roots
+    if p.parts and p.parts[0] in _ALLOWED_ROOTS:
+        return p
+    raise HTTPException(400, f"doc_id must start with one of: {_ALLOWED_ROOTS}")
+
+
 class DocUpdate(BaseModel):
     content: str
 
@@ -64,7 +74,7 @@ def list_docs():
 
 @app.get("/api/docs/{doc_id:path}")
 def get_doc(doc_id: str):
-    path = Path(doc_id)
+    path = _safe_path(doc_id)
     if not path.exists():
         raise HTTPException(404, "Document not found")
     return {"id": doc_id, "content": path.read_text(encoding="utf-8"),
@@ -73,7 +83,7 @@ def get_doc(doc_id: str):
 
 @app.put("/api/docs/{doc_id:path}")
 def update_doc(doc_id: str, body: DocUpdate):
-    path = Path(doc_id)
+    path = _safe_path(doc_id)
     if not path.exists():
         raise HTTPException(404, "Document not found")
     path.write_text(body.content, encoding="utf-8")
@@ -83,7 +93,8 @@ def update_doc(doc_id: str, body: DocUpdate):
 
 @app.delete("/api/docs/{doc_id:path}")
 def remove_doc(doc_id: str):
-    if not Path(doc_id).exists():
+    path = _safe_path(doc_id)
+    if not path.exists():
         raise HTTPException(404, "Document not found")
     delete_doc(doc_id)
     return {"ok": True}
@@ -109,7 +120,8 @@ def hub(dept: str, doc: str):
 @app.post("/api/ingest/file")
 async def ingest_file(file: UploadFile = File(...)):
     suffix = Path(file.filename).suffix.lower()
-    tmp = tempfile.mktemp(suffix=suffix)
+    fd, tmp = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
     try:
         with open(tmp, 'wb') as f:
             shutil.copyfileobj(file.file, f)

@@ -143,6 +143,33 @@ document.getElementById('detail-delete').addEventListener('click', () => {
   document.getElementById('modal-overlay').classList.remove('hidden');
 });
 
+document.getElementById('detail-edit').addEventListener('click', () => {
+  if (!currentDetailId) return;
+  // Parse dept and doc from doc_id like "knowledge/engineering/skill.md"
+  const parts = currentDetailId.replace(/\\/g, '/').split('/');
+  if (parts.length >= 3 && parts[0] === 'knowledge') {
+    hubDept = parts[1];
+    hubDoc = parts[2].replace('.md', '');
+    // Update dept/doc tabs active state
+    document.querySelectorAll('#dept-tabs .tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.dept === hubDept);
+    });
+    document.querySelectorAll('#doc-tabs .tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.doc === hubDoc);
+    });
+  }
+  // Close detail panel and navigate to hub in edit mode
+  const panel = document.getElementById('detail-panel');
+  panel.classList.remove('open');
+  setTimeout(() => panel.classList.add('hidden'), 260);
+  navigate('hub');
+  // Open edit mode after hub loads
+  setTimeout(() => {
+    document.getElementById('hub-content').classList.add('hidden');
+    document.getElementById('hub-edit-area').classList.remove('hidden');
+  }, 300);
+});
+
 document.getElementById('modal-cancel').addEventListener('click', () => {
   document.getElementById('modal-overlay').classList.add('hidden');
   pendingDeleteId = null;
