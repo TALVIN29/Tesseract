@@ -23,14 +23,18 @@ from store import (
 )
 
 
+_BASE = Path(__file__).parent.resolve()
 _ALLOWED_ROOTS = ("knowledge", "meetings")
 
 def _safe_path(doc_id: str) -> Path:
-    p = Path(doc_id)
-    # Resolve to absolute, then check it doesn't escape allowed roots
-    if p.parts and p.parts[0] in _ALLOWED_ROOTS:
-        return p
-    raise HTTPException(400, f"doc_id must start with one of: {_ALLOWED_ROOTS}")
+    try:
+        full = (_BASE / doc_id).resolve()
+    except Exception:
+        raise HTTPException(400, "Invalid doc_id")
+    for root in _ALLOWED_ROOTS:
+        if full.is_relative_to(_BASE / root):
+            return full
+    raise HTTPException(400, f"doc_id must be under one of: {_ALLOWED_ROOTS}")
 
 
 class DocUpdate(BaseModel):

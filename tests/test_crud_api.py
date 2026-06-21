@@ -22,6 +22,11 @@ def test_get_doc_missing():
     assert r.status_code == 404
 
 
+def test_path_traversal_blocked():
+    r = client.get("/api/docs/knowledge%2F..%2Fmain.py")
+    assert r.status_code == 400
+
+
 def test_hub_endpoint():
     r = client.get("/api/hub/engineering/skill")
     assert r.status_code == 200

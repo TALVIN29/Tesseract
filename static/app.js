@@ -314,9 +314,19 @@ async function loadHub() {
   document.getElementById('hub-content').classList.remove('hidden');
   document.getElementById('hub-editor').value = content;
   const bl = document.getElementById('hub-backlinks');
-  bl.innerHTML = backlinks.length
-    ? `<p class="text-muted">Referenced by: ${backlinks.map(p => `<code>${p}</code>`).join(', ')}</p>`
-    : '';
+  bl.innerHTML = '';
+  if (backlinks.length) {
+    const para = document.createElement('p');
+    para.className = 'text-muted';
+    para.append('Referenced by: ');
+    backlinks.forEach((path, i) => {
+      const code = document.createElement('code');
+      code.textContent = path;
+      para.appendChild(code);
+      if (i < backlinks.length - 1) para.append(', ');
+    });
+    bl.appendChild(para);
+  }
   await loadPendingSection();
 }
 
