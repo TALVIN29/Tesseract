@@ -23,6 +23,15 @@ from store import (
 class DocUpdate(BaseModel):
     content: str
 
+
+class IngestBody(BaseModel):
+    text: str
+
+
+def sse(data: dict) -> str:
+    return f"data: {json.dumps(data)}\n\n"
+
+
 app = FastAPI(title="Tesseract Knowledge Hub")
 pending: dict[str, dict] = {}
 
@@ -80,6 +89,75 @@ def hub(dept: str, doc: str):
     backlinks = build_backlinks()
     linked_from = backlinks.get(f"{dept}/{doc}", [])
     return {"content": content, "backlinks": linked_from}
+
+
+# ---------------------------------------------------------------------------
+# SSE Ingest Endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/ingest")
+async def ingest(body: IngestBody):
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "text required")
+
+    async def generate():
+        yield sse({"step": "classifying", "status": "running"})
+        classification = await asyncio.to_thread(ai.classify, text)
+        dept = classification.get("dept", "engineering")
+        meeting_type = classification.get("type", "standup")
+        yield sse({"step": "classifying", "status": "done",
+                   "dept": dept, "type": meeting_type})
+
+        yield sse({"step": "extracting", "status": "running"})
+        items = await asyncio.to_thread(ai.extract, text)
+        yield sse({"step": "extracting", "status": "done", "count": len(items)})
+
+        from datetime import date as _date
+        lines = [f"# {dept.title()} {meeting_type.title()} — {_date.today().isoformat()}\n"]
+        actions = [i for i in items if i.get("category") == "ACTION"]
+        decisions = [i for i in items if i.get("category") == "DECIDED"]
+        deferred = [i for i in items if i.get("category") == "DEFERRED"]
+        if actions:
+            lines.append("## Actions")
+            for a in actions:
+                lines.append(f"- ACTION | {a.get('owner','?')} | {a.get('what','?')} | {a.get('deadline') or 'TBD'}")
+        if decisions:
+            lines.append("\n## Decisions")
+            for d in decisions:
+                lines.append(f"- DECIDED: {d.get('what','?')}")
+        if deferred:
+            lines.append("\n## Deferred")
+            for d in deferred:
+                lines.append(f"- DEFERRED: {d.get('what','?')} → {d.get('deadline') or 'TBD'}")
+        record = "\n".join(lines)
+        path = await asyncio.to_thread(store.save_meeting, dept, record)
+        yield sse({"step": "saving", "status": "done", "path": path})
+
+        yield sse({"step": "compiling", "status": "running"})
+        wiki_pages = list_wiki_pages(dept)
+        updates = await asyncio.to_thread(ai.compile_to_wiki, text, dept, wiki_pages)
+        for page_name, new_content in updates.items():
+            doc_id = f"knowledge/{dept}/{page_name}.md"
+            if Path(doc_id).exists():
+                old_content = Path(doc_id).read_text(encoding="utf-8")
+                pid = queue_overwrite(doc_id, old_content, new_content)
+                yield sse({"step": "compiling", "status": "pending",
+                           "doc": doc_id, "pending_id": pid})
+            else:
+                await asyncio.to_thread(save_wiki_page, dept, page_name, new_content)
+                upsert_doc(doc_id, new_content)
+                yield sse({"step": "compiling", "status": "created", "doc": doc_id})
+
+        upsert_doc(path, record)
+        yield sse({"step": "indexed", "status": "done"})
+        yield sse({"step": "complete", "pending_count": len(pending)})
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------------------
