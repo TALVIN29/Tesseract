@@ -1,8 +1,10 @@
+import base64
 import json
-import requests
+from pathlib import Path
+
 from openai import OpenAI
 
-OPENAI_API_KEY = "sk-YOUR-KEY-HERE"  # ponytail: hardcoded per user request — replace before running
+OPENAI_API_KEY = "***REMOVED***"  # ponytail: hardcoded per user request — replace before running
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -66,83 +68,93 @@ def search(query: str, docs: dict) -> str:
     return resp.choices[0].message.content
 
 
-def generate(prompt: str, context: str) -> str:
+def compile_to_wiki(new_content: str, dept: str, wiki_pages: dict) -> dict:
+    pages_ctx = "\n\n".join(
+        f"=== {name} ===\n{content[:1000]}" for name, content in wiki_pages.items()
+    )[:8000]
+    resp = client.chat.completions.create(
+        model="gpt-4o",
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You maintain a markdown wiki for a company department. "
+                    "Given new content, identify which wiki pages need updating and return their full updated markdown. "
+                    "Preserve existing structure. Add cross-links using [[page_name]] syntax. "
+                    'Return JSON: {"updates": [{"page": "page_name", "content": "full markdown"}]}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Department: {dept}\n\n"
+                    f"Current wiki pages:\n{pages_ctx}\n\n"
+                    f"New content to compile:\n{new_content}"
+                ),
+            },
+        ],
+    )
+    data = json.loads(resp.choices[0].message.content)
+    return {u["page"]: u["content"] for u in data.get("updates", [])}
+
+
+def lint_wiki(all_pages: dict) -> str:
+    context = "\n\n".join(
+        f"=== {name} ===\n{content[:500]}" for name, content in all_pages.items()
+    )[:8000]
     resp = client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "You are an expert at writing company SOPs and cultural documents in markdown. "
-                    "Write clearly and concisely. Use headers, bullet points, numbered lists."
+                    "Audit this markdown wiki. Find: orphaned pages (no incoming links), "
+                    "contradictions between pages, stale or unverified claims, missing cross-references. "
+                    "Return a markdown report with findings grouped by severity and suggested fixes."
                 ),
             },
-            {
-                "role": "user",
-                "content": f"Context from existing docs:\n{context}\n\nWrite: {prompt}",
-            },
+            {"role": "user", "content": f"Wiki pages:\n{context}"},
         ],
     )
     return resp.choices[0].message.content
 
 
-def search_github_sops(dept: str, industry: str) -> list:
-    query = f"SOP {dept} {industry} in:file language:markdown"
-    resp = requests.get(
-        "https://api.github.com/search/code",
-        params={"q": query, "per_page": 5},
-        headers={"Accept": "application/vnd.github.v3+json"},
-        timeout=10,
-    )
-    if resp.status_code != 200:
-        return []
-    items = resp.json().get("items", [])
-    return [
-        {
-            "repo": item["repository"]["full_name"],
-            "path": item["path"],
-            "raw_url": (
-                f"https://raw.githubusercontent.com/"
-                f"{item['repository']['full_name']}/"
-                f"{item['repository'].get('default_branch', 'main')}/"
-                f"{item['path']}"
-            ),
-        }
-        for item in items[:3]
-    ]
+def transcribe(file_path: str) -> str:
+    with open(file_path, "rb") as f:
+        resp = client.audio.transcriptions.create(model="whisper-1", file=f)
+    return resp.text
 
 
-def fetch_github_content(raw_url: str) -> str:
-    resp = requests.get(raw_url, timeout=10)
-    if resp.status_code != 200:
-        return ""
-    # ponytail: cap at 3000 chars per example — keeps adapt_sop context manageable
-    return resp.text[:3000]
+def file_to_text_from_path(file_path: str) -> str:
+    from pathlib import Path as _Path
+    import pdfplumber
+    ext = _Path(file_path).suffix.lower()
+    if ext in {".mp3", ".mp4", ".wav", ".m4a", ".webm"}:
+        return transcribe(file_path)
+    if ext in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+        return extract_from_image(file_path)
+    if ext == ".pdf":
+        with pdfplumber.open(file_path) as pdf:
+            return "\n".join(page.extract_text() or "" for page in pdf.pages)
+    return open(file_path, encoding="utf-8").read()
 
 
-def adapt_sop(examples: list, company: dict) -> str:
-    examples_text = "\n\n---\n\n".join(examples) if examples else "No examples found."
+def extract_from_image(file_path: str) -> str:
+    ext = Path(file_path).suffix.lower().lstrip(".")
+    mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "webp": "webp"}.get(ext, "jpeg")
+    with open(file_path, "rb") as f:
+        data = base64.b64encode(f.read()).decode()
     resp = client.chat.completions.create(
         model="gpt-4o",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert at writing company SOPs. "
-                    "Adapt the provided examples into a personalized SOP for the given company. "
-                    "Output clean, well-structured markdown."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Company: {company['name']}\n"
-                    f"Department: {company['dept']}\n"
-                    f"Industry: {company['industry']}\n\n"
-                    f"Reference examples from GitHub:\n{examples_text}\n\n"
-                    f"Write a personalized skill.md for this company's {company['dept']} department."
-                ),
-            },
-        ],
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Extract all text and describe the content of this image for use as meeting notes."},
+                {"type": "image_url", "image_url": {"url": f"data:image/{mime};base64,{data}"}},
+            ],
+        }],
     )
     return resp.choices[0].message.content
+
+

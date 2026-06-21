@@ -5,7 +5,10 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, Request, HTTPException
+import shutil
+import tempfile
+
+from fastapi import FastAPI, File, Request, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -97,6 +100,24 @@ def hub(dept: str, doc: str):
     backlinks = build_backlinks()
     linked_from = backlinks.get(f"{dept}/{doc}", [])
     return {"content": content, "backlinks": linked_from}
+
+
+# ---------------------------------------------------------------------------
+# File Upload Endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/ingest/file")
+async def ingest_file(file: UploadFile = File(...)):
+    suffix = Path(file.filename).suffix.lower()
+    tmp = tempfile.mktemp(suffix=suffix)
+    try:
+        with open(tmp, 'wb') as f:
+            shutil.copyfileobj(file.file, f)
+        text = await asyncio.to_thread(ai.file_to_text_from_path, tmp)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return {"text": text}
 
 
 # ---------------------------------------------------------------------------

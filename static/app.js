@@ -161,3 +161,119 @@ document.getElementById('modal-confirm').addEventListener('click', async () => {
 // ── Init ────────────────────────────────────────────────
 refreshStats();
 navigate('graph');
+
+// ── Ingest View ────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const ingestText = document.getElementById('ingest-text');
+const ingestBtn = document.getElementById('ingest-btn');
+
+// Drop zone click → file input
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+
+// File upload → extract text via /api/ingest/file
+async function handleFile(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const r = await fetch('/api/ingest/file', {method: 'POST', body: formData});
+  const {text} = await r.json();
+  ingestText.value = text;
+  ingestBtn.disabled = false;
+}
+
+// Enable button when text present
+ingestText.addEventListener('input', () => {
+  ingestBtn.disabled = !ingestText.value.trim();
+});
+
+// Helper to update progress step
+function setStep(id, state, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = `progress-step ${state}`;
+  const dot = el.querySelector('.step-dot');
+  if (dot) dot.textContent = state === 'done' ? '✓' : state === 'pending-warn' ? '⚠' : '◌';
+  const textNode = el.childNodes[el.childNodes.length - 1];
+  if (msg && textNode) textNode.textContent = ' ' + msg;
+}
+
+// Ingest button click → POST /api/ingest SSE
+ingestBtn.addEventListener('click', async () => {
+  const text = ingestText.value.trim();
+  if (!text) return;
+  ingestBtn.disabled = true;
+  document.getElementById('ingest-progress').classList.remove('hidden');
+  document.getElementById('ingest-done').classList.add('hidden');
+  ['ps-classifying','ps-extracting','ps-compiling','ps-indexed'].forEach(id => setStep(id, '', ''));
+
+  let pendingCount = 0;
+  await streamSSE('/api/ingest', {text}, (evt) => {
+    if (evt.step === 'classifying' && evt.status === 'done')
+      setStep('ps-classifying', 'done', `${evt.dept} ${evt.type}`);
+    if (evt.step === 'extracting' && evt.status === 'done')
+      setStep('ps-extracting', 'done', `${evt.count} items found`);
+    if (evt.step === 'compiling') {
+      if (evt.status === 'created') setStep('ps-compiling', 'done', `Created ${evt.doc}`);
+      if (evt.status === 'pending') { setStep('ps-compiling', 'pending-warn', `${evt.doc} awaiting approval`); pendingCount++; }
+    }
+    if (evt.step === 'indexed' && evt.status === 'done')
+      setStep('ps-indexed', 'done', 'Added to index');
+    if (evt.step === 'complete') {
+      document.getElementById('ingest-result').textContent = pendingCount > 0
+        ? `Done! ${pendingCount} wiki change(s) need approval in Hub.`
+        : 'Done! Knowledge base updated.';
+      document.getElementById('ingest-done').classList.remove('hidden');
+      refreshStats();
+    }
+  });
+});
+
+// "View in Graph" button
+document.getElementById('view-in-graph').addEventListener('click', () => {
+  navigate('graph');
+  ingestText.value = '';
+  ingestBtn.disabled = true;
+  document.getElementById('ingest-progress').classList.add('hidden');
+  document.getElementById('ingest-done').classList.add('hidden');
+});
+
+// ── Search View ────────────────────────────────────────
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+
+// ⌘K / Ctrl+K shortcut → navigate to search + focus
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    navigate('search');
+    searchInput.focus();
+  }
+});
+
+// Debounced search on input
+let searchDebounce = null;
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(doSearch, 400);
+});
+
+async function doSearch() {
+  const q = searchInput.value.trim();
+  if (!q) { searchResults.innerHTML = ''; return; }
+  searchResults.innerHTML = '<div class="text-muted">Searching...</div>';
+  let accumulated = '';
+  await streamSSE('/api/search', {query: q}, (evt) => {
+    if (evt.chunk !== undefined) {
+      accumulated += evt.chunk;
+      searchResults.innerHTML = `<div class="result-card"><div class="result-snippet">${DOMPurify.sanitize(marked.parse(accumulated))}</div></div>`;
+    }
+  });
+}
