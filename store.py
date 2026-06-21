@@ -170,30 +170,31 @@ def list_docs_meta() -> list:
     return [get_doc_meta(p) for p in docs]
 
 
-def get_graph_data() -> dict:
-    docs = list_all_docs()
-    node_ids = set(docs.keys())
-    nodes = []
+def _collect_edges(docs: dict, node_ids: set) -> list:
     edges = []
-    for path in node_ids:
-        norm = path.replace("\\", "/")
-        if norm.startswith("knowledge"):
-            group = "knowledge"
-        elif norm.startswith("meetings"):
-            group = "meetings"
-        else:
-            group = "agency"
-        nodes.append({
-            "id": path,
-            "label": os.path.basename(path).replace(".md", ""),
-            "group": group,
-            "title": norm,
-        })
     for source_path, content in docs.items():
         for link in re.findall(r'\[\[(.+?)\]\]', content):
             target = os.path.join(KNOWLEDGE_DIR, *link.split("/")) + ".md"
             if target in node_ids:
                 edges.append({"from": source_path, "to": target})
+    return edges
+
+
+def get_graph_data() -> dict:
+    docs = list_all_docs()
+    node_ids = set(docs.keys())
+    nodes = []
+    for path in node_ids:
+        parts = Path(path).parts
+        group = parts[0] if parts[0] in ("knowledge", "meetings") else "agency"
+        title = path.replace("\\", "/")
+        nodes.append({
+            "id": path,
+            "label": Path(path).stem,
+            "group": group,
+            "title": title,
+        })
+    edges = _collect_edges(docs, node_ids)
     return {"nodes": nodes, "edges": edges}
 
 
@@ -207,11 +208,8 @@ def render_graph() -> str:
         label = os.path.basename(path).replace(".md", "")
         net.add_node(path, label=label, title=path.replace("\\", "/"))
 
-    for source_path, content in docs.items():
-        for link in re.findall(r'\[\[(.+?)\]\]', content):
-            target = os.path.join(KNOWLEDGE_DIR, *link.split("/")) + ".md"
-            if target in node_ids:
-                net.add_edge(source_path, target)
+    for edge in _collect_edges(docs, node_ids):
+        net.add_edge(edge["from"], edge["to"])
 
     tmp = tempfile.mktemp(suffix=".html")
     net.write_html(tmp)

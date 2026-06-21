@@ -1,4 +1,4 @@
-import os, pytest
+import pytest
 from store import delete_doc, get_doc_meta, list_docs_meta, get_graph_data
 
 def test_get_doc_meta_missing():
