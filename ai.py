@@ -1,12 +1,11 @@
 import base64
 import json
+import os
 from pathlib import Path
 
 from openai import OpenAI
 
-OPENAI_API_KEY = "***REMOVED***"  # ponytail: hardcoded per user request — replace before running
-
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
 def classify(text: str) -> dict:
@@ -59,7 +58,12 @@ def search(query: str, docs: dict) -> str:
                 "content": (
                     "You are a knowledge base assistant. "
                     "Answer using only the provided documents. "
-                    "Cite sources by file path."
+                    "Cite sources by file path.\n\n"
+                    "After your answer, add:\n"
+                    "## Knowledge Gaps\n"
+                    "List information that was absent, uncertain, or would improve this answer "
+                    "if added to the knowledge base. Suggest specific doc titles or topics to ingest. "
+                    "If no gaps, write \"None identified.\""
                 ),
             },
             {"role": "user", "content": f"Documents:\n{context}\n\nQuestion: {query}"},
