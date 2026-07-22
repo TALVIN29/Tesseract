@@ -86,7 +86,7 @@ Format: `- [label] the fact #optional-tag`
 
 | Label | Means | Rule |
 |---|---|---|
-| `[fact]` | Verified. I checked it | **Must be supported by a `cites` relation or a `sources` entry** |
+| `[fact]` | Verified. I checked it | **Must be verifiable.** Either cite it (a `cites` relation or a `sources` entry), or state *how* you checked it — `#verified`, a file path, a job number. If you can do neither, it is a `[claim]` |
 | `[claim]` | Someone asserts it; I have not checked | Name who, if known. Promote to `[fact]` only after verifying |
 | `[decision]` | I chose X | Only in `type: decision` notes |
 | `[because]` | The reason for the decision above | **Every `[decision]` must be followed by at least one `[because]`.** This is the rule the whole system exists to enforce |
