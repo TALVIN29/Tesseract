@@ -8,36 +8,26 @@
 *.key
 *.crt
 *.p12
-infra/certs/*.pem
-infra/certs/*.key
+
+# Derived indexes — rebuildable from the notes, never the source of truth.
+# If an index and a note disagree, the note wins.
+index/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
 
 # Dependencies
 node_modules/
 .pnp
 .pnp.js
 
-# Next.js
-sphere/.next/
-sphere/out/
-
-# Build outputs
-cube/dist/
-cube/build/
-*.js.map
-
-# n8n runtime data
-n8n-data/
-infra/n8n-data/
-
-# Docker volumes (local dev data)
-infra/postgres-cube-data/
-infra/postgres-planes-data/
-infra/redis-data/
-infra/grafana-data/
-infra/prometheus-data/
-
-# Rules repo is a separate Git repository — do not track here
-rules/
+# Quartz build output
+site/public/
+site/.quartz-cache/
 
 # IDE
 .vscode/
@@ -45,19 +35,16 @@ rules/
 *.swp
 *.swo
 
+# Obsidian (used as the local editor over the same folder)
+.obsidian/
+
 # OS
 .DS_Store
 Thumbs.db
 
 # Logs
 *.log
-logs/
-npm-debug.log*
 
 # Test outputs
 coverage/
-.nyc_output/
-test-results/
-
-# TypeScript
-*.tsbuildinfo
+.pytest_cache/
